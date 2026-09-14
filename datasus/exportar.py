@@ -1,15 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Exportação da tabela de estabelecimentos para Excel e PDF."""
+"""Exportacao da tabela de estabelecimentos para Excel e PDF."""
 from __future__ import annotations
 
 import io
 
 import pandas as pd
 
-
 def adicionar_linha_total(df: pd.DataFrame, coluna_total: str) -> pd.DataFrame:
-    """Devolve uma cópia do DataFrame com uma linha "Total" ao final,
-    somando `coluna_total` e deixando as demais colunas em branco."""
     if df.empty:
         return df
     total = {col: "" for col in df.columns}
@@ -17,24 +14,17 @@ def adicionar_linha_total(df: pd.DataFrame, coluna_total: str) -> pd.DataFrame:
     total[coluna_total] = df[coluna_total].sum()
     return pd.concat([df, pd.DataFrame([total])], ignore_index=True)
 
-
 def _linha_filtros(filtros: dict[str, str] | None) -> str:
-    """Formata o dicionário de filtros aplicados como uma linha de texto
-    legível (ex.: 'Tipo: Transplante · Região: Nordeste, Sul · UF: CE')."""
     if not filtros:
         return "Nenhum filtro aplicado (todos os dados)."
     partes = [f"{chave}: {valor}" for chave, valor in filtros.items() if valor]
-    return " · ".join(partes) if partes else "Nenhum filtro aplicado (todos os dados)."
-
+    return " . ".join(partes) if partes else "Nenhum filtro aplicado (todos os dados)."
 
 def gerar_excel(
     df: pd.DataFrame,
     titulo: str = "Estabelecimentos",
     filtros: dict[str, str] | None = None,
 ) -> bytes:
-    """Gera um .xlsx formatado (cabeçalho em negrito, colunas
-    autoajustadas), com os filtros aplicados listados nas primeiras
-    linhas da planilha, e devolve os bytes prontos para download."""
     from openpyxl.styles import Font
     from openpyxl.utils import get_column_letter
 
@@ -43,9 +33,6 @@ def gerar_excel(
     linha_filtros = _linha_filtros(filtros)
 
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-        # Duas linhas de cabeçalho (título + filtros aplicados) antes da
-        # tabela propriamente dita, para o arquivo exportado ser
-        # autoexplicativo sobre qual recorte de dados ele representa.
         df.to_excel(writer, index=False, sheet_name=aba, startrow=3)
         planilha = writer.sheets[aba]
         planilha.cell(row=1, column=1, value=titulo).font = Font(bold=True, size=13)
@@ -57,19 +44,17 @@ def gerar_excel(
         for col_idx, coluna in enumerate(df.columns, start=1):
             celula = planilha.cell(row=cabecalho_linha, column=col_idx)
             celula.font = Font(bold=True)
-            largura = max(12, min(45, int(df[coluna].astype(str).str.len().max() or 12) + 2))
+            maior_valor = df[coluna].astype(str).str.len().max()
+            maior = int(maior_valor) if pd.notna(maior_valor) else 12
+            largura = max(12, min(45, maior + 2))
             planilha.column_dimensions[get_column_letter(col_idx)].width = largura
     return buffer.getvalue()
-
 
 def gerar_pdf(
     df: pd.DataFrame,
     titulo: str = "Estabelecimentos",
     filtros: dict[str, str] | None = None,
 ) -> bytes:
-    """Gera um PDF simples em tabela (retrato/paisagem automático
-    conforme o número de colunas), com os filtros aplicados listados no
-    topo do documento, e devolve os bytes."""
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib.units import cm
