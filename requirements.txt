@@ -7,4 +7,5 @@ altair>=5
 reportlab>=4.0
 pytest>=8.0
 pyreaddbc>=2.0,<3
+dbfread>=2.0,<3
 tzdata; sys_platform == "win32"
