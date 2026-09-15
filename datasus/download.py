@@ -7,32 +7,35 @@ aqui, atrás de uma função pura de assinatura simples
 testar todo o resto do pipeline (organização, persistência) sem
 precisar de rede — basta trocar esta função por um dublê nos testes.
 
-A API namespaced moderna do pysus (`pysus.ftp.sih`) é priorizada sobre
-a função legada (`pysus.sih`), por ser a forma atualmente recomendada
-pela biblioteca. Por padrão essa API consulta um espelho em nuvem
-mantido pelos mantenedores do pysus; quando o resultado vem vazio, uma
-segunda tentativa força a consulta direta ao servidor oficial do
-DATASUS (`source="origin"`) antes de recorrer à API legada como último
-recurso.
+A API namespaced moderna do pysus (`pysus.ftp.sih`) é a forma
+atualmente recomendada pela biblioteca e é usada como primeira
+tentativa. Ela consulta um índice/catálogo S3 mantido pelos
+mantenedores do pysus para descobrir quais arquivos existem.
 
-IMPORTANTE (descoberto investigando lacunas reais de dados): mesmo
-`source="origin"` do pysus descobre QUAIS arquivos existem consultando
-o mesmo índice/catálogo S3 (`pysus.query(...)`) — só muda de onde baixa
-os bytes depois de decidir que o arquivo existe (ver
-`pysus/api/_impl/source.py::_fetch_origin_direct`). Esse catálogo é um
-índice mantido manualmente pelos mantenedores do pysus e pode ter
-lacunas (o próprio changelog do pysus tem um comando interno de
-"sync and check databases on s3"), mesmo quando o arquivo existe de
-verdade no FTP oficial do DATASUS. Por isso, como último recurso
-verdadeiramente independente do pysus, `_baixar_via_ftp_direto` faz uma
-listagem AO VIVO do FTP oficial (`ftp.datasus.gov.br`) — o mesmo padrão
-usado pelo pacote de referência `microdatasus` (R) — baixa o `.dbc`
-encontrado e o decodifica com as mesmas ferramentas que o pysus usa
-internamente: `pyreaddbc.dbc2dbf` converte o `.dbc` para `.dbf`
-(pyreaddbc não expõe leitura direta para DataFrame nesta versão, apesar
-do que sugere seu README) e `dbfread.DBF` lê o `.dbf` resultante. Só
-quando a listagem ao vivo confirma que o arquivo não existe é que a
-competência é tratada como genuinamente vazia.
+IMPORTANTE (descoberto investigando lacunas reais de dados): esse
+catálogo pode ter lacunas mesmo quando o arquivo existe de verdade no
+FTP oficial do DATASUS — o próprio changelog do pysus tem um comando
+interno de "sync and check databases on s3", confirmando que ele exige
+sincronização manual periódica pelos mantenedores. Duas variações que
+pareciam hedges úteis (`pysus.ftp.sih(source="origin")` e a função
+legada `pysus.sih()`) foram removidas daqui: ambas descobrem QUAIS
+arquivos existem consultando esse MESMO catálogo internamente (ver
+`pysus/api/_impl/source.py::_fetch_origin_direct` — `source="origin"`
+só muda de onde baixa os bytes depois de já ter decidido, via catálogo,
+que o arquivo existe), então nunca teriam sucesso nos casos em que a
+tentativa via catálogo padrão falha por essa razão — eram complexidade
+sem cobertura real adicional.
+
+Como último recurso genuinamente independente do catálogo do pysus,
+`_baixar_via_ftp_direto` faz uma listagem AO VIVO do FTP oficial
+(`ftp.datasus.gov.br`) — o mesmo padrão usado pelo pacote de referência
+`microdatasus` (R) — baixa o `.dbc` encontrado e o decodifica com as
+mesmas ferramentas que o pysus usa internamente: `pyreaddbc.dbc2dbf`
+converte o `.dbc` para `.dbf` (pyreaddbc não expõe leitura direta para
+DataFrame nesta versão, apesar do que sugere seu README) e
+`dbfread.DBF` lê o `.dbf` resultante. Só quando a listagem ao vivo
+confirma que o arquivo não existe é que a competência é tratada como
+genuinamente vazia.
 
 `ResultadoDownload.total_bruto` guarda quantas AIH vieram no arquivo
 ANTES de qualquer filtro pelos códigos SIGTAP monitorados. Isso permite
@@ -160,13 +163,12 @@ def _baixar_via_ftp_direto(uf: str, ano: int, mes: int) -> ResultadoDownload | N
 def baixar_competencia(uf: str, ano: int, mes: int) -> ResultadoDownload:
     """Baixa uma competência do grupo RD (AIH Reduzida) do SIH/SUS.
 
-    Tenta, em ordem, até encontrar dados: API moderna (espelho padrão),
-    API moderna (servidor oficial), API legada e, por fim, FTP oficial
-    direto (bypass total do catálogo do pysus). Levanta `RuntimeError`
-    apenas se todas as tentativas falharem com exceção; se todas
-    devolverem vazio sem erro (incluindo a listagem ao vivo do FTP
-    confirmando ausência do arquivo), retorna um resultado com
-    `total_bruto=0`.
+    Tenta primeiro a API moderna do pysus e, se vier vazia ou falhar,
+    recorre ao FTP oficial direto (bypass total do catálogo do pysus —
+    ver nota no topo do módulo). Levanta `RuntimeError` apenas se ambas
+    as tentativas falharem com exceção; se ambas devolverem vazio sem
+    erro (incluindo a listagem ao vivo do FTP confirmando ausência do
+    arquivo), retorna um resultado com `total_bruto=0`.
     """
     erros: list[str] = []
 
@@ -178,36 +180,7 @@ def baixar_competencia(uf: str, ano: int, mes: int) -> ResultadoDownload:
         if isinstance(df, pd.DataFrame) and not df.empty:
             return ResultadoDownload(bruto=df, total_bruto=len(df))
     except Exception as exc:  # noqa: BLE001
-        erros.append(f"pysus.ftp.sih(source=catalog): {exc}")
-
-    try:
-        import pysus as pysus_mod  # type: ignore
-
-        df = pysus_mod.ftp.sih(
-            state=uf, year=ano, month=mes, group="RD",
-            source="origin", as_dataframe=True,
-        )
-        df = _dataframe_de_retorno_pysus(df)
-        if isinstance(df, pd.DataFrame) and not df.empty:
-            return ResultadoDownload(bruto=df, total_bruto=len(df))
-    except TypeError as exc:
-        erros.append(f"pysus.ftp.sih(source=origin): parâmetro não suportado ({exc})")
-    except Exception as exc:  # noqa: BLE001
-        erros.append(f"pysus.ftp.sih(source=origin): {exc}")
-
-    try:
-        from pysus import sih as sih_func  # type: ignore
-
-        try:
-            df = _dataframe_de_retorno_pysus(
-                sih_func(state=uf, year=ano, month=mes, group="RD", as_dataframe=True)
-            )
-            if isinstance(df, pd.DataFrame) and not df.empty:
-                return ResultadoDownload(bruto=df, total_bruto=len(df))
-        except TypeError as exc:
-            erros.append(f"pysus.sih(group=RD): parâmetro não suportado ({exc})")
-    except ImportError as exc:
-        erros.append(f"import pysus.sih: {exc}")
+        erros.append(f"pysus.ftp.sih: {exc}")
 
     try:
         resultado_ftp = _baixar_via_ftp_direto(uf, ano, mes)
@@ -218,6 +191,6 @@ def baixar_competencia(uf: str, ano: int, mes: int) -> ResultadoDownload:
 
     if erros:
         raise RuntimeError(
-            "Não foi possível baixar via pysus. Detalhes: " + " | ".join(erros[-3:])
+            "Não foi possível baixar via pysus. Detalhes: " + " | ".join(erros)
         )
     return ResultadoDownload(bruto=pd.DataFrame(), total_bruto=0)
