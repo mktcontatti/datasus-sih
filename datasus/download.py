@@ -26,10 +26,13 @@ lacunas (o próprio changelog do pysus tem um comando interno de
 verdade no FTP oficial do DATASUS. Por isso, como último recurso
 verdadeiramente independente do pysus, `_baixar_via_ftp_direto` faz uma
 listagem AO VIVO do FTP oficial (`ftp.datasus.gov.br`) — o mesmo padrão
-usado pelo pacote de referência `microdatasus` (R) — e decodifica o
-`.dbc` encontrado com `pyreaddbc` (a mesma biblioteca que o pysus usa
-por baixo). Só quando essa listagem ao vivo confirma que o arquivo não
-existe é que a competência é tratada como genuinamente vazia.
+usado pelo pacote de referência `microdatasus` (R) — baixa o `.dbc`
+encontrado e o decodifica com as mesmas ferramentas que o pysus usa
+internamente: `pyreaddbc.dbc2dbf` converte o `.dbc` para `.dbf`
+(pyreaddbc não expõe leitura direta para DataFrame nesta versão, apesar
+do que sugere seu README) e `dbfread.DBF` lê o `.dbf` resultante. Só
+quando a listagem ao vivo confirma que o arquivo não existe é que a
+competência é tratada como genuinamente vazia.
 
 `ResultadoDownload.total_bruto` guarda quantas AIH vieram no arquivo
 ANTES de qualquer filtro pelos códigos SIGTAP monitorados. Isso permite
@@ -85,19 +88,32 @@ def _dataframe_de_retorno_pysus(retorno) -> pd.DataFrame:
     return pd.concat(partes, ignore_index=True)
 
 
+def _decodificar_valor_dbf(valor):
+    """Decodifica um valor bruto lido do .dbf (bytes em cp1252, às vezes
+    terminado com bytes NUL de preenchimento) para uma string limpa —
+    mesma lógica que o próprio pysus aplica internamente."""
+    if isinstance(valor, bytes):
+        return valor.decode("cp1252", errors="replace").replace("\x00", "").strip()
+    if isinstance(valor, str):
+        return valor.replace("\x00", "").strip()
+    return valor
+
+
 def _baixar_via_ftp_direto(uf: str, ano: int, mes: int) -> ResultadoDownload | None:
     """Baixa o arquivo .dbc do grupo RD direto do FTP oficial do DATASUS,
     sem depender do catálogo do pysus (ver nota no topo do módulo).
 
     Devolve `None` quando a listagem AO VIVO do diretório confirma que o
     arquivo não existe (competência genuinamente sem dado publicado).
-    Levanta exceção em caso de falha de rede/FTP — o chamador decide o
-    que fazer (registrar como erro comum, tentar de novo, etc.)."""
+    Levanta exceção em caso de falha de rede/FTP/decodificação — o
+    chamador decide o que fazer (registrar como erro comum, tentar de
+    novo, etc.)."""
     import ftplib
     import os
     import tempfile
 
-    import pyreaddbc
+    from dbfread import DBF
+    from pyreaddbc import dbc2dbf
 
     host = "ftp.datasus.gov.br"
     diretorio = "/dissemin/publicos/SIHSUS/200801_/Dados"
@@ -114,8 +130,8 @@ def _baixar_via_ftp_direto(uf: str, ano: int, mes: int) -> ResultadoDownload | N
         if nome_real is None:
             return None
 
-        caminho_tmp = tempfile.mktemp(suffix=".dbc")
-        with open(caminho_tmp, "wb") as arquivo:
+        caminho_dbc = tempfile.mktemp(suffix=".dbc")
+        with open(caminho_dbc, "wb") as arquivo:
             ftp.retrbinary(f"RETR {nome_real}", arquivo.write)
     finally:
         try:
@@ -123,15 +139,21 @@ def _baixar_via_ftp_direto(uf: str, ano: int, mes: int) -> ResultadoDownload | N
         except Exception:  # noqa: BLE001
             ftp.close()
 
+    caminho_dbf = tempfile.mktemp(suffix=".dbf")
     try:
-        df = pyreaddbc.read_dbc(caminho_tmp, encoding="iso-8859-1")
+        dbc2dbf(caminho_dbc, caminho_dbf)
+        registros = [
+            {chave: _decodificar_valor_dbf(valor) for chave, valor in registro.items()}
+            for registro in DBF(caminho_dbf, encoding="cp1252", raw=True)
+        ]
+        df = pd.DataFrame(registros)
     finally:
-        try:
-            os.remove(caminho_tmp)
-        except OSError:
-            pass
+        for caminho in (caminho_dbc, caminho_dbf):
+            try:
+                os.remove(caminho)
+            except OSError:
+                pass
 
-    df = df if isinstance(df, pd.DataFrame) else pd.DataFrame()
     return ResultadoDownload(bruto=df, total_bruto=len(df))
 
 
