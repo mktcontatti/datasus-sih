@@ -14,12 +14,15 @@ cache.
 """
 from __future__ import annotations
 
+import time
+
 import requests
 
 from datasus.db import transacao
 
 API_MUNICIPIOS = "https://servicodados.ibge.gov.br/api/v1/localidades/municipios"
 TIMEOUT = 60
+MAX_TENTATIVAS = 3
 
 
 def _extrair_uf_regiao(municipio: dict) -> tuple[str | None, str | None]:
@@ -40,12 +43,38 @@ def _extrair_uf_regiao(municipio: dict) -> tuple[str | None, str | None]:
     return None, None
 
 
+def _buscar_municipios() -> list | None:
+    """Busca a lista de municípios na API do IBGE, tentando algumas vezes
+    em caso de falha transitória de rede ou resposta inválida (a API do
+    IBGE ocasionalmente devolve corpo vazio com status 200). Devolve
+    `None` — em vez de levantar exceção — quando todas as tentativas
+    falham, para que uma instabilidade passageira nessa API auxiliar não
+    derrube o restante do pipeline de coleta."""
+    ultimo_erro: Exception | None = None
+    for tentativa in range(1, MAX_TENTATIVAS + 1):
+        try:
+            resp = requests.get(API_MUNICIPIOS, timeout=TIMEOUT)
+            resp.raise_for_status()
+            return resp.json()
+        except (requests.RequestException, ValueError) as exc:
+            ultimo_erro = exc
+            if tentativa < MAX_TENTATIVAS:
+                time.sleep(2 ** tentativa)
+
+    print(
+        f"[municipios] AVISO: falha ao consultar a API do IBGE após "
+        f"{MAX_TENTATIVAS} tentativas ({ultimo_erro}). Cache de "
+        f"municípios não foi atualizado nesta execução."
+    )
+    return None
+
+
 def atualizar_cache() -> int:
     """Baixa a lista completa de municípios do IBGE e grava no cache
     local. Devolve quantos municípios foram gravados com sucesso."""
-    resp = requests.get(API_MUNICIPIOS, timeout=TIMEOUT)
-    resp.raise_for_status()
-    municipios = resp.json()
+    municipios = _buscar_municipios()
+    if municipios is None:
+        return 0
 
     linhas = []
     pulados = 0
