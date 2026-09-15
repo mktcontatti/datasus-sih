@@ -3,6 +3,21 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      ufs:
+        description: "UFs separadas por espaco (vazio = todas)"
+        required: false
+        default: ""
+      anos:
+        description: "Anos separados por espaco (vazio = ano-base atual)"
+        required: false
+        default: ""
+      meses:
+        description: 'Meses, ex.: "1-12" ou "1,3,5" (vazio = todos)'
+        required: false
+        default: ""
+  schedule:
+    - cron: "0 6 * * 1"
 permissions:
   contents: read
 jobs:
@@ -18,3 +33,35 @@ jobs:
       - run: python cli.py importar-procedimentos
       - run: python -m pytest tests/ -q
       - run: python cli.py diagnostico
+  coletar:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    needs: testes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python cli.py importar-procedimentos
+      - run: python cli.py atualizar-municipios
+      - name: Coletar
+        env:
+          COLETA_UFS: ${{ inputs.ufs }}
+          COLETA_ANOS: ${{ inputs.anos }}
+          COLETA_MESES: ${{ inputs.meses }}
+        run: |
+          python cli.py coletar ${COLETA_UFS:+--ufs $COLETA_UFS} ${COLETA_ANOS:+--anos $COLETA_ANOS} ${COLETA_MESES:+--meses "$COLETA_MESES"}
+      - run: python cli.py retentar-falhas
+      - run: python cli.py corrigir-nomes
+      - run: python cli.py diagnostico
+      - run: python cli.py integridade
+      - name: Checkpoint do banco SQLite
+        run: python -c "from datasus.db import conectar; c = conectar(); c.execute('PRAGMA wal_checkpoint(TRUNCATE)'); c.close()"
+      - name: Publicar banco como artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sih-db
+          path: data/sih.db
+          retention-days: 30
