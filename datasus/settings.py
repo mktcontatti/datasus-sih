@@ -14,7 +14,7 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
-DB_PATH = DATA_DIR / "sih.db"
+DB_PATH = DATA_DIR / "sih (2).db"
 PROCEDIMENTOS_XLSX = DATA_DIR / "procedimentos.xlsx"
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
