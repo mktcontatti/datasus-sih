@@ -387,7 +387,7 @@ termo_busca = st.text_input(
 col_ordenar, col_ordem = st.columns(2)
 with col_ordenar:
     ordenar_por = st.selectbox(
-        "Ordenar por", ["Procedimentos", "Razão Social", "Nome Fantasia"]
+        "Ordenar por", ["Total", "Razão Social", "Nome Fantasia"]
     )
 with col_ordem:
     ordem = st.selectbox("Ordem", ["Maior primeiro", "Menor primeiro"])
@@ -400,9 +400,9 @@ agg = (
         Municipio=("municipio_nome", "first"),
         UF=("uf", "first"),
         Regiao=("regiao", "first"),
-        Procedimentos=("cnes", "count"),
     )
-    .reset_index(drop=True)
+    .reset_index()
+    .rename(columns={"cnes": "CNES"})
 )
 agg = agg.rename(
     columns={
@@ -413,6 +413,23 @@ agg = agg.rename(
     }
 )
 
+pivot_categoria = (
+    df_f.pivot_table(
+        index="cnes",
+        columns="categoria",
+        values="codigo_sigtap",
+        aggfunc="count",
+        fill_value=0,
+    )
+    .reindex(columns=categorias_disponiveis, fill_value=0)
+    .rename_axis(None, axis=1)
+    .reset_index()
+    .rename(columns={"cnes": "CNES"})
+)
+agg = agg.merge(pivot_categoria, on="CNES", how="left")
+agg[categorias_disponiveis] = agg[categorias_disponiveis].fillna(0).astype(int)
+agg["Total"] = agg[categorias_disponiveis].sum(axis=1)
+
 if termo_busca:
     termo = termo_busca.strip().lower()
     agg = agg[
@@ -421,7 +438,7 @@ if termo_busca:
     ]
 
 coluna_ordenacao = {
-    "Procedimentos": "Procedimentos",
+    "Total": "Total",
     "Razão Social": "Razão Social",
     "Nome Fantasia": "Nome Fantasia",
 }[ordenar_por]
@@ -432,21 +449,24 @@ agg = agg.sort_values(
 
 st.caption(f"{len(agg)} estabelecimento(s) no recorte atual.")
 
-tabela_com_total = adicionar_linha_total(agg, "Procedimentos")
+tabela_com_total = adicionar_linha_total(agg, categorias_disponiveis + ["Total"])
 st.dataframe(
     tabela_com_total,
     use_container_width=True,
     hide_index=True,
     height=520,
     column_config={
+        "CNES": st.column_config.TextColumn("CNES", width="small"),
         "Razão Social": st.column_config.TextColumn("Razão Social", width="large"),
         "Nome Fantasia": st.column_config.TextColumn("Nome Fantasia", width="large"),
         "Município": st.column_config.TextColumn("Município", width="medium"),
         "UF": st.column_config.TextColumn("UF", width="small"),
         "Região": st.column_config.TextColumn("Região", width="medium"),
-        "Procedimentos": st.column_config.NumberColumn(
-            "Procedimentos", width="medium", format="%d"
-        ),
+        **{
+            categoria: st.column_config.NumberColumn(categoria, width="small", format="%d")
+            for categoria in categorias_disponiveis
+        },
+        "Total": st.column_config.NumberColumn("Total", width="small", format="%d"),
     },
 )
 

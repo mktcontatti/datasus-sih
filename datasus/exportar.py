@@ -6,12 +6,14 @@ import io
 
 import pandas as pd
 
-def adicionar_linha_total(df: pd.DataFrame, coluna_total: str) -> pd.DataFrame:
+def adicionar_linha_total(df: pd.DataFrame, colunas_total: str | list[str]) -> pd.DataFrame:
     if df.empty:
         return df
+    colunas = [colunas_total] if isinstance(colunas_total, str) else list(colunas_total)
     total = {col: "" for col in df.columns}
     total[df.columns[0]] = "Total"
-    total[coluna_total] = df[coluna_total].sum()
+    for coluna in colunas:
+        total[coluna] = df[coluna].sum()
     return pd.concat([df, pd.DataFrame([total])], ignore_index=True)
 
 def _linha_filtros(filtros: dict[str, str] | None) -> str:
