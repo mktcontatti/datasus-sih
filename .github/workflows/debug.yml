@@ -1,0 +1,49 @@
+name: Debug FTP DATASUS
+on:
+  workflow_dispatch:
+    inputs:
+      uf:
+        required: true
+      ano:
+        required: true
+      mes:
+        required: true
+      aih:
+        required: true
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Diagnosticar AIH
+        env:
+          DBG_UF: ${{ inputs.uf }}
+          DBG_ANO: ${{ inputs.ano }}
+          DBG_MES: ${{ inputs.mes }}
+          DBG_AIH: ${{ inputs.aih }}
+        run: |
+          python -c "
+          import os
+          from datasus.download import _baixar_via_ftp_direto
+          uf = os.environ['DBG_UF']
+          ano = int(os.environ['DBG_ANO'])
+          mes = int(os.environ['DBG_MES'])
+          aih = os.environ['DBG_AIH']
+          r = _baixar_via_ftp_direto(uf, ano, mes)
+          if r is None:
+              print('RESULTADO: arquivo nao existe no FTP para', uf, ano, mes)
+          else:
+              print('total_bruto', r.total_bruto)
+              df = r.bruto
+              print('colunas disponiveis:', list(df.columns))
+              achou = df[df['N_AIH'].astype(str) == aih]
+              print('linhas encontradas para AIH', aih, ':', len(achou))
+              if len(achou):
+                  cols = [c for c in ['N_AIH','PROC_REA','PROC_SOLIC','IDENT','ANO_CMPT','MES_CMPT','DT_INTER','DT_SAIDA'] if c in df.columns]
+                  print(achou[cols].to_string())
+          "
