@@ -63,5 +63,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sih-db
-          path: data/sih.db
+                path: data/sih (2).db
           retention-days: 30
