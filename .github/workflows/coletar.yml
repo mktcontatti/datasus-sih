@@ -56,7 +56,7 @@ jobs:
           COLETA_UFS: ${{ inputs.ufs }}
           COLETA_ANOS: ${{ inputs.anos }}
           COLETA_MESES: ${{ inputs.meses }}
-        COLETA_FORCAR: ${{ inputs.forcar }}
+          COLETA_FORCAR: ${{ inputs.forcar }}
         run: |
           python cli.py coletar ${COLETA_UFS:+--ufs $COLETA_UFS} ${COLETA_ANOS:+--anos $COLETA_ANOS} ${COLETA_MESES:+--meses "$COLETA_MESES"} $( [ "$COLETA_FORCAR" = "true" ] && echo --forcar )
       - run: python cli.py retentar-falhas
