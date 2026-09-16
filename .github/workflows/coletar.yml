@@ -16,6 +16,11 @@ on:
         description: 'Meses, ex.: "1-12" ou "1,3,5" (vazio = todos)'
         required: false
         default: ""
+      forcar:
+        description: "Reprocessar mesmo competencias ja marcadas como sucesso"
+        required: false
+        type: boolean
+        default: false
   schedule:
     - cron: "0 6 * * 1"
 permissions:
@@ -51,8 +56,9 @@ jobs:
           COLETA_UFS: ${{ inputs.ufs }}
           COLETA_ANOS: ${{ inputs.anos }}
           COLETA_MESES: ${{ inputs.meses }}
+        COLETA_FORCAR: ${{ inputs.forcar }}
         run: |
-          python cli.py coletar ${COLETA_UFS:+--ufs $COLETA_UFS} ${COLETA_ANOS:+--anos $COLETA_ANOS} ${COLETA_MESES:+--meses "$COLETA_MESES"}
+          python cli.py coletar ${COLETA_UFS:+--ufs $COLETA_UFS} ${COLETA_ANOS:+--anos $COLETA_ANOS} ${COLETA_MESES:+--meses "$COLETA_MESES"} $( [ "$COLETA_FORCAR" = "true" ] && echo --forcar )
       - run: python cli.py retentar-falhas
       - run: python cli.py corrigir-nomes
       - run: python cli.py diagnostico
