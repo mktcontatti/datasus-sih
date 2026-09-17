@@ -7,27 +7,56 @@ aqui, atras de uma funcao pura de assinatura simples
 testar todo o resto do pipeline (organizacao, persistencia) sem
 precisar de rede.
 
-IMPORTANTE (descoberto comparando com uma fonte de referencia real):
-o catalogo S3 usado pela API do pysus (`pysus.ftp.sih`) pode devolver
-um arquivo NAO vazio mas PARCIALMENTE INCOMPLETO (menos AIH do que o
-arquivo real publicado no FTP oficial do DATASUS). Isso passava
-despercebido porque `total_bruto > 0` nesses casos, entao a
-competencia era marcada 'sucesso' e nunca reprocessada. Comparando
-nosso banco com uma planilha de referencia (91 codigos SIGTAP, ano
-completo de 2025): codigos de transplante (grupo "0505") vinham quase
-perfeitos, mas codigos de cirurgia cardiaca (grupo "0406") tinham de
-14% a 90% de registros faltando, repetindo-se na maioria dos estados.
+IMPORTANTE (descoberto com a Dataglass, confirmado no TABNET): o grupo
+"RD" (AIH Reduzida) NAO e o problema de fonte incompleta que se pensava
+antes -- tanto o catalogo do pysus quanto o FTP direto trazem os MESMOS
+dados de RD. O problema real e que o grupo RD resume cada AIH em UMA
+linha, com apenas o PROCEDIMENTO PRINCIPAL daquela internacao. Cirurgias
+que acontecem como procedimento SECUNDARIO de uma AIH (comum em cirurgia
+cardiovascular, onde e frequente uma AIH ter mais de um procedimento
+cirurgico) nunca aparecem no RD.
 
-Por isso, a listagem AO VIVO do FTP oficial (`ftp.datasus.gov.br`)
-agora e a PRIMEIRA tentativa, nao um ultimo recurso. A API do pysus
-fica como fallback, usada apenas se o FTP direto falhar por um motivo
-tecnico.
+O grupo "SP" (Servicos Profissionais) resolve isso: e o detalhe por
+servico/procedimento de cada AIH, com uma linha por procedimento
+realizado (nao so o principal). Por isso agora baixamos SP como fonte
+principal, normal e simplesmente renomeamos as colunas SP_* para os
+mesmos nomes que o RD usa (PROC_REA, CNES, N_AIH, MUNIC_MOV, MUNIC_RES)
+para que o resto do pipeline (`datasus/coleta.py:organizar`) nao
+precise saber a diferenca entre as duas fontes.
+
+Confirmado comparando com o TABNET (Dados Detalhados das AIH, por local
+de internacao) e com a metodologia da Dataglass: para o procedimento
+"Revascularizacao Miocardica C/ Uso de Extracorporea (C/ 2 ou Mais
+Enxertos)" em SP, outubro/2025 -- RD (so principal) da 371, SP (todos
+os procedimentos da AIH) da 401, que e o numero que bate com a
+planilha de referencia.
+
+`ResultadoDownload.total_bruto` guarda quantas linhas vieram no arquivo
+ANTES de qualquer filtro pelos codigos SIGTAP monitorados (no grupo SP,
+isso e o total de linhas de servico/procedimento, nao de AIH). Isso
+permite diferenciar, no pipeline de coleta, um mes em que legitimamente
+nao houve nenhum procedimento monitorado (total_bruto > 0) de uma falha
+de download que retornou vazio (total_bruto == 0) -- ver
+`datasus/coleta.py`.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 import pandas as pd
+
+GRUPO_PADRAO = "SP"
+
+# Colunas do grupo SP que sao renomeadas para os nomes equivalentes do
+# grupo RD, para que `datasus/coleta.py:organizar` funcione sem mudanca
+# nenhuma nos dois grupos.
+RENOMEIO_COLUNAS_SP = {
+    "SP_PROCREA": "PROC_REA",
+    "SP_CNES": "CNES",
+    "SP_NAIH": "N_AIH",
+    "SP_M_HOSP": "MUNIC_MOV",
+    "SP_M_PAC": "MUNIC_RES",
+}
 
 
 @dataclass
@@ -68,6 +97,7 @@ def _dataframe_de_retorno_pysus(retorno) -> pd.DataFrame:
         return pd.DataFrame()
     return pd.concat(partes, ignore_index=True)
 
+
 def _decodificar_valor_dbf(valor):
     """Decodifica um valor bruto lido do .dbf (bytes em cp1252)."""
     if isinstance(valor, bytes):
@@ -76,9 +106,10 @@ def _decodificar_valor_dbf(valor):
         return valor.replace("\x00", "").strip()
     return valor
 
-
-def _baixar_via_ftp_direto(uf: str, ano: int, mes: int) -> ResultadoDownload | None:
-    """Baixa o arquivo .dbc do grupo RD direto do FTP oficial do DATASUS."""
+def _baixar_via_ftp_direto(
+    uf: str, ano: int, mes: int, grupo: str = GRUPO_PADRAO
+) -> ResultadoDownload | None:
+    """Baixa o arquivo .dbc de um grupo do SIH/SUS direto do FTP oficial."""
     import ftplib
     import os
     import tempfile
@@ -88,7 +119,7 @@ def _baixar_via_ftp_direto(uf: str, ano: int, mes: int) -> ResultadoDownload | N
 
     host = "ftp.datasus.gov.br"
     diretorio = "/dissemin/publicos/SIHSUS/200801_/Dados"
-    nome_alvo = f"RD{uf.upper()}{ano % 100:02d}{mes:02d}.dbc".upper()
+    nome_alvo = f"{grupo}{uf.upper()}{ano % 100:02d}{mes:02d}.dbc".upper()
 
     ftp = ftplib.FTP(host, timeout=60)
     try:
@@ -125,30 +156,37 @@ def _baixar_via_ftp_direto(uf: str, ano: int, mes: int) -> ResultadoDownload | N
             except OSError:
                 pass
 
+    if grupo == "SP":
+        df = df.rename(columns=RENOMEIO_COLUNAS_SP)
+
     return ResultadoDownload(bruto=df, total_bruto=len(df))
 
-def baixar_competencia(uf: str, ano: int, mes: int) -> ResultadoDownload:
-    """Baixa uma competencia do grupo RD do SIH/SUS.
 
-    Tenta primeiro o FTP oficial direto (bypass total do catalogo do
-    pysus). So recorre a API do pysus se o FTP direto falhar por um
+def baixar_competencia(uf: str, ano: int, mes: int) -> ResultadoDownload:
+    """Baixa uma competencia do SIH/SUS.
+
+    Tenta primeiro o FTP oficial direto do grupo SP (Servicos
+    Profissionais), que traz todos os procedimentos de cada AIH -- nao
+    so o principal, ao contrario do grupo RD (ver nota no topo do
+    modulo). So recorre a API do pysus se o FTP direto falhar por um
     motivo tecnico.
     """
     erros: list[str] = []
 
     try:
-        resultado_ftp = _baixar_via_ftp_direto(uf, ano, mes)
+        resultado_ftp = _baixar_via_ftp_direto(uf, ano, mes, grupo=GRUPO_PADRAO)
         if resultado_ftp is not None:
             return resultado_ftp
     except Exception as exc:
-        erros.append(f"ftp direto: {exc}")
+        erros.append(f"ftp direto ({GRUPO_PADRAO}): {exc}")
 
     try:
         import pysus as pysus_mod
 
-        df = pysus_mod.ftp.sih(state=uf, year=ano, month=mes, group="RD", as_dataframe=True)
+        df = pysus_mod.ftp.sih(state=uf, year=ano, month=mes, group=GRUPO_PADRAO, as_dataframe=True)
         df = _dataframe_de_retorno_pysus(df)
         if isinstance(df, pd.DataFrame) and not df.empty:
+            df = df.rename(columns=RENOMEIO_COLUNAS_SP)
             return ResultadoDownload(bruto=df, total_bruto=len(df))
     except Exception as exc:
         erros.append(f"pysus.ftp.sih (fallback): {exc}")
