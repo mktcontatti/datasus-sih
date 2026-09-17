@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SIH/SUS · DATASUS</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🩺</text></svg>">
+<style>
+  :root{
+    --bg:#F5F5F7; --card:#FFFFFF; --texto:#1D1D1F; --sec:#6E6E73;
+    --borda:#D2D2D7; --acento:#0B3D66; --acento2:#082A47;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg); color:var(--texto);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    padding:2rem 2rem 3rem;
+  }
+  @media (max-width:600px){ body{padding:1.1rem .8rem 2rem;} }
+  .titulo{font-size:1.6rem;font-weight:700;margin:0 0 .2rem 0;}
+  .sub{font-size:.85rem;color:var(--sec);margin:0 0 .3rem 0;}
+  .aviso{font-size:.8rem;color:var(--sec);margin:0 0 .6rem 0;}
+  hr.fina{border:0;border-top:1px solid var(--borda);margin:1rem 0 1.1rem;}
+  .secao{font-size:1.1rem;font-weight:700;margin:1.3rem 0 .5rem;}
+  .rotulo{font-size:.8rem;font-weight:600;color:var(--sec);margin:.5rem 0 .3rem;}
+  .filtros-topo{display:flex;justify-content:space-between;align-items:flex-end;gap:1rem;flex-wrap:wrap;}
+  button.limpar{
+    background:transparent;border:1px solid var(--borda);color:var(--sec);
+    border-radius:8px;padding:.45rem .9rem;font-size:.8rem;cursor:pointer;
+  }
+  button.limpar:hover{background:#EDEDF0;}
+  .pills{display:flex;flex-wrap:wrap;gap:.4rem;}
+  .pill{
+    border:1px solid var(--borda);background:var(--card);color:var(--texto);
+    border-radius:999px;padding:.35rem .85rem;font-size:.82rem;cursor:pointer;
+    user-select:none;white-space:nowrap;font-family:inherit;line-height:1.3;
+  }
+  .pill.ativo{background:var(--acento);border-color:var(--acento);color:#fff;}
+  .stats{display:flex;gap:2.5rem;flex-wrap:wrap;margin:.2rem 0 1rem;}
+  .stat .num{font-size:2.1rem;font-weight:600;line-height:1.15;font-variant-numeric:tabular-nums;}
+  .stat .rot{font-size:.85rem;color:var(--sec);}
+  input.busca{
+    width:100%;max-width:480px;padding:.55rem .8rem;border:1px solid var(--borda);
+    border-radius:8px;font-size:.9rem;background:var(--card);color:var(--texto);
+  }
+  select.ordenar{
+    padding:.5rem .6rem;border:1px solid var(--borda);border-radius:8px;
+    background:var(--card);color:var(--texto);font-size:.85rem;
+  }
+  .linha-controles{display:flex;gap:1.2rem;flex-wrap:wrap;margin:.7rem 0;align-items:end;}
+  .campo label{display:block;font-size:.78rem;color:var(--sec);margin-bottom:.25rem;}
+  .contagem{font-size:.82rem;color:var(--sec);margin:.4rem 0 .5rem;}
+  .tabela-wrap{overflow-x:auto;border:1px solid var(--borda);border-radius:10px;max-height:560px;overflow-y:auto;}
+  table{border-collapse:collapse;width:100%;font-size:.85rem;background:var(--card);}
+  thead th{
+    position:sticky;top:0;background:#FAFAFB;text-align:left;padding:.55rem .7rem;
+    border-bottom:1px solid var(--borda);white-space:nowrap;font-weight:600;color:var(--sec);
+    font-size:.78rem;text-transform:none;
+  }
+  tbody td{padding:.5rem .7rem;border-bottom:1px solid #EEEEF0;white-space:nowrap;}
+  tbody tr:last-child td{border-bottom:none;}
+  tbody tr.linha-total td{font-weight:700;background:#FAFAFB;position:sticky;bottom:0;}
+  td.num, th.num{text-align:right;font-variant-numeric:tabular-nums;}
+  .botoes-export{display:flex;gap:.6rem;margin-top:.8rem;}
+  button.export{
+    border:1px solid var(--borda);background:var(--card);color:var(--texto);
+    border-radius:8px;padding:.5rem 1rem;font-size:.85rem;cursor:pointer;
+  }
+  button.export:hover{background:#EDEDF0;}
+  .graficos{display:flex;gap:2rem;flex-wrap:wrap;margin-top:.5rem;}
+  .grafico-box{flex:1 1 420px;min-width:280px;}
+  .barra-linha{display:flex;align-items:center;gap:.6rem;margin:.35rem 0;}
+  .barra-rotulo{width:70px;font-size:.78rem;color:var(--sec);flex-shrink:0;text-align:right;}
+  .barra-rotulo.cat{width:150px;text-align:right;}
+  .barra-trilho{flex:1;background:#ECECEF;border-radius:4px;height:20px;position:relative;}
+  .barra-fill{background:var(--acento);height:100%;border-radius:4px;min-width:2px;}
+  .barra-valor{font-size:.75rem;color:var(--sec);width:56px;font-variant-numeric:tabular-nums;}
+  #carregando{padding:3rem 0;text-align:center;color:var(--sec);}
+  ::-webkit-scrollbar{height:10px;width:10px;}
+  ::-webkit-scrollbar-thumb{background:#D2D2D7;border-radius:5px;}
+</style>
+</head>
+<body>
+
+<div id="carregando">Carregando dados…</div>
+<div id="app" style="display:none;">
+
+  <div class="titulo">Procedimentos SUS por Estabelecimento</div>
+  <div class="sub" id="sub-info"></div>
+  <div class="aviso" id="aviso-cobertura" style="display:none;"></div>
+
+  <hr class="fina">
+
+  <div class="filtros-topo">
+    <div class="secao" style="margin:0;">Filtros</div>
+    <button class="limpar" id="btn-limpar">Limpar filtros</button>
+  </div>
+
+  <div class="rotulo">Tipo de procedimento</div>
+  <div class="pills" id="pills-tipo"></div>
+
+  <div class="rotulo">Categoria</div>
+  <div class="pills" id="pills-categoria"></div>
+
+  <div class="rotulo">Região</div>
+  <div class="pills" id="pills-regiao"></div>
+
+  <div class="rotulo">Estado</div>
+  <div class="pills" id="pills-uf"></div>
+
+  <hr class="fina">
+
+  <div class="stats">
+    <div class="stat"><div class="num" id="stat-proc">0</div><div class="rot">Procedimentos</div></div>
+    <div class="stat"><div class="num" id="stat-estab">0</div><div class="rot">Estabelecimentos</div></div>
+    <div class="stat"><div class="num" id="stat-uf">0</div><div class="rot">UFs atendidas</div></div>
+  </div>
+
+  <div class="secao">Estabelecimentos</div>
+  <div class="campo">
+    <label for="busca">Buscar por nome (Razão Social ou Nome Fantasia)</label>
+    <input class="busca" id="busca" type="text" placeholder="ex.: Hospital das Clínicas">
+  </div>
+  <div class="linha-controles">
+    <div class="campo">
+      <label for="ordenar-por">Ordenar por</label>
+      <select class="ordenar" id="ordenar-por">
+        <option value="Total">Total</option>
+        <option value="Razão Social">Razão Social</option>
+        <option value="Nome Fantasia">Nome Fantasia</option>
+      </select>
+    </div>
+    <div class="campo">
+      <label for="ordenar-ordem">Ordem</label>
+      <select class="ordenar" id="ordenar-ordem">
+        <option value="desc">Maior primeiro</option>
+        <option value="asc">Menor primeiro</option>
+      </select>
+    </div>
+  </div>
+  <div class="contagem" id="contagem-estab"></div>
+  <div class="tabela-wrap">
+    <table id="tabela">
+      <thead><tr id="tabela-cabecalho"></tr></thead>
+      <tbody id="tabela-corpo"></tbody>
+    </table>
+  </div>
+  <div class="botoes-export">
+    <button class="export" id="btn-csv">⬇️ CSV</button>
+  </div>
+
+  <div class="secao">Procedimentos por mês</div>
+  <div class="grafico-box" id="grafico-mes"></div>
+
+  <div class="secao">Procedimentos por categoria</div>
+  <div class="grafico-box" id="grafico-categoria"></div>
+
+</div>
+
+<script>
+const MESES_CURTO = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+
+const estado = {
+  tipo: "Todos",
+  regiao: "Todos",
+  categoria: ["Todos"],
+  uf: ["Todos"],
+};
+
+let DADOS = null;
+let categoriasVisiveis = [];
+let ufsVisiveis = [];
+
+function fmtInt(n){ return n.toLocaleString("pt-BR"); }
+
+function pillsMultiToggle(chave, valor, opcoesVisiveis){
+  let atual = estado[chave].slice();
+  if(valor === "Todos"){
+    atual = ["Todos"];
+  } else {
+    if(atual.includes("Todos")) atual = [];
+    if(atual.includes(valor)){
+      atual = atual.filter(v => v !== valor);
+    } else {
+      atual.push(valor);
+    }
+    if(atual.length === 0) atual = ["Todos"];
+    // se selecionou todas as opções visíveis manualmente, colapsa para "Todos"
+    if(opcoesVisiveis.every(o => atual.includes(o))) atual = ["Todos"];
+  }
+  estado[chave] = atual;
+}
+
+function renderPillsTipo(){
+  const cont = document.getElementById("pills-tipo");
+  cont.innerHTML = "";
+  ["Todos","Cirurgia Cardíaca","Transplantes"].forEach(op => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "pill" + (estado.tipo === op ? " ativo" : "");
+    b.textContent = op;
+    b.onclick = () => {
+      estado.tipo = op;
+      estado.categoria = ["Todos"];
+      renderTudo();
+    };
+    cont.appendChild(b);
+  });
+}
+
+function categoriasDoTipo(){
+  if(estado.tipo === "Cirurgia Cardíaca") return DADOS.categorias_cirurgia;
+  if(estado.tipo === "Transplantes") return DADOS.categorias_transplante;
+  return DADOS.categorias_cirurgia.concat(DADOS.categorias_transplante);
+}
+
+function renderPillsCategoria(){
+  categoriasVisiveis = categoriasDoTipo();
+  const cont = document.getElementById("pills-categoria");
+  cont.innerHTML = "";
+  ["Todos"].concat(categoriasVisiveis).forEach(op => {
+    const b = document.createElement("button");
+    b.type = "button";
+    const ativo = estado.categoria.includes("Todos") ? op === "Todos" : estado.categoria.includes(op);
+    b.className = "pill" + (ativo ? " ativo" : "");
+    b.textContent = op;
+    b.onclick = () => {
+      pillsMultiToggle("categoria", op, categoriasVisiveis);
+      renderTudo();
+    };
+    cont.appendChild(b);
+  });
+}
+
+function regioesDisponiveis(){
+  const s = new Set();
+  Object.values(DADOS.estabelecimentos).forEach(e => s.add(e.regiao));
+  return Array.from(s).sort();
+}
+
+function ufsDisponiveis(){
+  const s = new Set();
+  Object.values(DADOS.estabelecimentos).forEach(e => s.add(e.uf));
+  return Array.from(s).sort();
+}
+
+function ufsDaRegiao(regiao){
+  if(regiao === "Todos") return ufsDisponiveis();
+  const s = new Set();
+  Object.values(DADOS.estabelecimentos).forEach(e => { if(e.regiao === regiao) s.add(e.uf); });
+  return Array.from(s).sort();
+}
+
+function renderPillsRegiao(){
+  const cont = document.getElementById("pills-regiao");
+  cont.innerHTML = "";
+  ["Todos"].concat(regioesDisponiveis()).forEach(op => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "pill" + (estado.regiao === op ? " ativo" : "");
+    b.textContent = op;
+    b.onclick = () => {
+      estado.regiao = op;
+      estado.uf = ["Todos"];
+      renderTudo();
+    };
+    cont.appendChild(b);
+  });
+}
+
+function renderPillsUf(){
+  ufsVisiveis = ufsDaRegiao(estado.regiao);
+  const cont = document.getElementById("pills-uf");
+  cont.innerHTML = "";
+  ["Todos"].concat(ufsVisiveis).forEach(op => {
+    const b = document.createElement("button");
+    b.type = "button";
+    const ativo = estado.uf.includes("Todos") ? op === "Todos" : estado.uf.includes(op);
+    b.className = "pill" + (ativo ? " ativo" : "");
+    b.textContent = op;
+    b.onclick = () => {
+      pillsMultiToggle("uf", op, ufsVisiveis);
+      renderTudo();
+    };
+    cont.appendChild(b);
+  });
+}
+
+function limparFiltros(){
+  estado.tipo = "Todos";
+  estado.regiao = "Todos";
+  estado.categoria = ["Todos"];
+  estado.uf = ["Todos"];
+  document.getElementById("busca").value = "";
+  document.getElementById("ordenar-por").value = "Total";
+  document.getElementById("ordenar-ordem").value = "desc";
+  renderTudo();
+}
+
+function fatosFiltrados(){
+  const tipoAlvo = estado.tipo === "Cirurgia Cardíaca" ? "Cirurgia"
+                  : estado.tipo === "Transplantes" ? "Transplante" : null;
+  const catFiltro = estado.categoria.includes("Todos") ? null : new Set(estado.categoria);
+  const ufFiltro = estado.uf.includes("Todos") ? null : new Set(estado.uf);
+  const regiaoFiltro = estado.regiao === "Todos" ? null : estado.regiao;
+
+  return DADOS.fatos.filter(f => {
+    if(tipoAlvo && f.tipo !== tipoAlvo) return false;
+    if(catFiltro && !catFiltro.has(f.categoria)) return false;
+    const est = DADOS.estabelecimentos[f.cnes];
+    if(!est) return false;
+    if(regiaoFiltro && est.regiao !== regiaoFiltro) return false;
+    if(ufFiltro && !ufFiltro.has(est.uf)) return false;
+    return true;
+  });
+}
+
+function renderStats(fatos){
+  const proc = fatos.reduce((s,f) => s + f.qtd, 0);
+  const cnesSet = new Set(fatos.map(f => f.cnes));
+  const ufSet = new Set(Array.from(cnesSet).map(c => DADOS.estabelecimentos[c].uf));
+  document.getElementById("stat-proc").textContent = fmtInt(proc);
+  document.getElementById("stat-estab").textContent = fmtInt(cnesSet.size);
+  document.getElementById("stat-uf").textContent = fmtInt(ufSet.size);
+}
+
+function agregarPorEstabelecimento(fatos, categoriasCols){
+  const porCnes = {};
+  fatos.forEach(f => {
+    if(!porCnes[f.cnes]) porCnes[f.cnes] = {};
+    porCnes[f.cnes][f.categoria] = (porCnes[f.cnes][f.categoria] || 0) + f.qtd;
+  });
+  const linhas = Object.keys(porCnes).map(cnes => {
+    const est = DADOS.estabelecimentos[cnes];
+    const linha = {
+      CNES: cnes,
+      "Razão Social": est.razao_social,
+      "Nome Fantasia": est.nome_fantasia,
+      "Município": est.municipio_nome,
+      UF: est.uf,
+      "Região": est.regiao,
+    };
+    let total = 0;
+    categoriasCols.forEach(c => {
+      const v = porCnes[cnes][c] || 0;
+      linha[c] = v;
+      total += v;
+    });
+    linha["Total"] = total;
+    return linha;
+  });
+  return linhas;
+}
+
+function renderTabela(fatos){
+  const categoriasCols = categoriasDoTipo();
+  let linhas = agregarPorEstabelecimento(fatos, categoriasCols);
+
+  const termo = document.getElementById("busca").value.trim().toLowerCase();
+  if(termo){
+    linhas = linhas.filter(l =>
+      l["Razão Social"].toLowerCase().includes(termo) ||
+      l["Nome Fantasia"].toLowerCase().includes(termo)
+    );
+  }
+
+  const ordenarPor = document.getElementById("ordenar-por").value;
+  const ordem = document.getElementById("ordenar-ordem").value;
+  linhas.sort((a,b) => {
+    let va = a[ordenarPor], vb = b[ordenarPor];
+    if(typeof va === "string"){ va = va.toLowerCase(); vb = vb.toLowerCase(); }
+    if(va < vb) return ordem === "asc" ? -1 : 1;
+    if(va > vb) return ordem === "asc" ? 1 : -1;
+    return 0;
+  });
+
+  document.getElementById("contagem-estab").textContent = `${linhas.length} estabelecimento(s) no recorte atual.`;
+
+  const colunas = ["CNES","Razão Social","Nome Fantasia","Município","UF","Região"].concat(categoriasCols).concat(["Total"]);
+  const numericas = new Set(categoriasCols.concat(["Total"]));
+
+  const cab = document.getElementById("tabela-cabecalho");
+  cab.innerHTML = "";
+  colunas.forEach(c => {
+    const th = document.createElement("th");
+    th.textContent = c;
+    if(numericas.has(c)) th.className = "num";
+    cab.appendChild(th);
+  });
+
+  const corpo = document.getElementById("tabela-corpo");
+  corpo.innerHTML = "";
+  linhas.forEach(l => {
+    const tr = document.createElement("tr");
+    colunas.forEach(c => {
+      const td = document.createElement("td");
+      td.textContent = numericas.has(c) ? fmtInt(l[c]) : l[c];
+      if(numericas.has(c)) td.className = "num";
+      tr.appendChild(td);
+    });
+    corpo.appendChild(tr);
+  });
+
+  // linha de total
+  if(linhas.length){
+    const trTotal = document.createElement("tr");
+    trTotal.className = "linha-total";
+    colunas.forEach((c,i) => {
+      const td = document.createElement("td");
+      if(i === 0){ td.textContent = "Total"; }
+      else if(numericas.has(c)){
+        td.textContent = fmtInt(linhas.reduce((s,l) => s + l[c], 0));
+        td.className = "num";
+      }
+      trTotal.appendChild(td);
+    });
+    corpo.appendChild(trTotal);
+  }
+
+  window._linhasAtuais = linhas;
+  window._colunasAtuais = colunas;
+}
+
+function exportarCsv(){
+  const linhas = window._linhasAtuais || [];
+  const colunas = window._colunasAtuais || [];
+  const esc = v => `"${String(v).replace(/"/g,'""')}"`;
+  const csv = [colunas.map(esc).join(";")]
+    .concat(linhas.map(l => colunas.map(c => esc(l[c])).join(";")))
+    .join("\r\n");
+  const blob = new Blob(["﻿" + csv], {type:"text/csv;charset=utf-8;"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `estabelecimentos_${DADOS.ano_base}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function renderGraficoMes(fatos){
+  const porMes = new Array(12).fill(0);
+  fatos.forEach(f => { porMes[f.mes - 1] += f.qtd; });
+  const max = Math.max(...porMes, 1);
+  const box = document.getElementById("grafico-mes");
+  box.innerHTML = "";
+  porMes.forEach((v, i) => {
+    const linha = document.createElement("div");
+    linha.className = "barra-linha";
+    linha.innerHTML = `
+      <div class="barra-rotulo">${MESES_CURTO[i]}</div>
+      <div class="barra-trilho"><div class="barra-fill" style="width:${(v/max*100).toFixed(1)}%"></div></div>
+      <div class="barra-valor">${fmtInt(v)}</div>`;
+    box.appendChild(linha);
+  });
+}
+
+function renderGraficoCategoria(fatos){
+  const porCat = {};
+  fatos.forEach(f => { porCat[f.categoria] = (porCat[f.categoria] || 0) + f.qtd; });
+  const entradas = Object.entries(porCat).sort((a,b) => b[1] - a[1]);
+  const max = Math.max(...entradas.map(e => e[1]), 1);
+  const box = document.getElementById("grafico-categoria");
+  box.innerHTML = "";
+  entradas.forEach(([cat, v]) => {
+    const linha = document.createElement("div");
+    linha.className = "barra-linha";
+    linha.innerHTML = `
+      <div class="barra-rotulo cat">${cat}</div>
+      <div class="barra-trilho"><div class="barra-fill" style="width:${(v/max*100).toFixed(1)}%"></div></div>
+      <div class="barra-valor">${fmtInt(v)}</div>`;
+    box.appendChild(linha);
+  });
+}
+
+function renderTudo(){
+  renderPillsTipo();
+  renderPillsCategoria();
+  renderPillsRegiao();
+  renderPillsUf();
+  const fatos = fatosFiltrados();
+  renderStats(fatos);
+  renderTabela(fatos);
+  renderGraficoMes(fatos);
+  renderGraficoCategoria(fatos);
+}
+
+fetch("data.json")
+  .then(r => r.json())
+  .then(d => {
+    DADOS = d;
+    document.getElementById("sub-info").textContent =
+      `Atualizado em ${d.gerado_em} · SIH/SUS · DATASUS · Cirurgias cardíacas e transplantes` +
+      (d.texto_cobertura ? ` · ${d.texto_cobertura}` : "");
+    if(d.competencias_faltantes > 0){
+      const av = document.getElementById("aviso-cobertura");
+      av.style.display = "block";
+      av.textContent = `${d.competencias_faltantes} competência(s) ainda pendente(s) de coleta em ${d.ano_base}.`;
+    }
+    document.getElementById("btn-limpar").onclick = limparFiltros;
+    document.getElementById("busca").oninput = () => renderTabela(fatosFiltrados());
+    document.getElementById("ordenar-por").onchange = () => renderTabela(fatosFiltrados());
+    document.getElementById("ordenar-ordem").onchange = () => renderTabela(fatosFiltrados());
+    document.getElementById("btn-csv").onclick = exportarCsv;
+    renderTudo();
+    document.getElementById("carregando").style.display = "none";
+    document.getElementById("app").style.display = "block";
+  })
+  .catch(err => {
+    document.getElementById("carregando").textContent = "Erro ao carregar dados: " + err;
+  });
+</script>
+</body>
+</html>
