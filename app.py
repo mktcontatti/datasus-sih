@@ -199,7 +199,6 @@ if df.empty:
 # ---------------------------------------------------------------------------
 regioes_disponiveis = sorted(df["regiao"].dropna().astype(str).unique().tolist())
 ufs_disponiveis = sorted(df["uf"].dropna().astype(str).unique().tolist())
-categorias_disponiveis = sorted(df["categoria"].dropna().astype(str).unique().tolist())
 
 regiao_para_ufs = {
     regiao: sorted(
@@ -216,6 +215,8 @@ tipo_para_categorias = {
         df.loc[df["tipo"] == "Transplante", "categoria"].dropna().astype(str).unique().tolist()
     ),
 }
+
+categorias_disponiveis = tipo_para_categorias["Cirurgia Cardíaca"] + tipo_para_categorias["Transplantes"]
 
 # ---------------------------------------------------------------------------
 # Estado inicial dos filtros
@@ -461,7 +462,7 @@ st.dataframe(
         "Nome Fantasia": st.column_config.TextColumn("Nome Fantasia", width="large"),
         "Município": st.column_config.TextColumn("Município", width="medium"),
         "UF": st.column_config.TextColumn("UF", width="small"),
-        "Região": st.column_config.TextColumn("Região", width="medium"),
+        "Região": st.column_config.TextColumn("Região", width="small"),
         **{
             categoria: st.column_config.NumberColumn(categoria, width="small", format="%d")
             for categoria in categorias_disponiveis
