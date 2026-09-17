@@ -166,30 +166,44 @@ const estado = {
   regiao: "Todos",
   categoria: ["Todos"],
   uf: ["Todos"],
+  anteriorCategoria: ["Todos"],
+  anteriorUf: ["Todos"],
 };
 
 let DADOS = null;
-let categoriasVisiveis = [];
-let ufsVisiveis = [];
 
 function fmtInt(n){ return n.toLocaleString("pt-BR"); }
 
-function pillsMultiToggle(chave, valor, opcoesVisiveis){
+// Alterna a inclusão de `valor` na lista (toggle puro, sem regra de exclusividade).
+function toggleMultiRaw(chave, valor){
   let atual = estado[chave].slice();
-  if(valor === "Todos"){
+  if(atual.includes(valor)) atual = atual.filter(v => v !== valor);
+  else atual.push(valor);
+  estado[chave] = atual;
+}
+
+// Mantém "Todos" mutuamente exclusivo com seleções específicas, igual ao
+// comportamento original do st.pills (multi) do Streamlit.
+function normalizarMultiFiltro(chave, chaveAnterior){
+  let atual = estado[chave].slice();
+  const anterior = estado[chaveAnterior] || ["Todos"];
+  if(atual.length === 0){
     atual = ["Todos"];
-  } else {
-    if(atual.includes("Todos")) atual = [];
-    if(atual.includes(valor)){
-      atual = atual.filter(v => v !== valor);
-    } else {
-      atual.push(valor);
-    }
-    if(atual.length === 0) atual = ["Todos"];
-    // se selecionou todas as opções visíveis manualmente, colapsa para "Todos"
-    if(opcoesVisiveis.every(o => atual.includes(o))) atual = ["Todos"];
+  } else if(atual.includes("Todos") && atual.length > 1){
+    atual = anterior.includes("Todos") ? atual.filter(v => v !== "Todos") : ["Todos"];
   }
   estado[chave] = atual;
+  estado[chaveAnterior] = atual.slice();
+}
+
+function todasCategorias(){
+  return DADOS.categorias_cirurgia.concat(DADOS.categorias_transplante);
+}
+
+function categoriasParaTipo(tipo){
+  if(tipo === "Cirurgia Cardíaca") return DADOS.categorias_cirurgia.slice();
+  if(tipo === "Transplantes") return DADOS.categorias_transplante.slice();
+  return [];
 }
 
 function renderPillsTipo(){
@@ -202,31 +216,28 @@ function renderPillsTipo(){
     b.textContent = op;
     b.onclick = () => {
       estado.tipo = op;
-      estado.categoria = ["Todos"];
+      estado.categoria = op === "Todos" ? ["Todos"] : categoriasParaTipo(op);
+      estado.anteriorCategoria = estado.categoria.slice();
       renderTudo();
     };
     cont.appendChild(b);
   });
 }
 
-function categoriasDoTipo(){
-  if(estado.tipo === "Cirurgia Cardíaca") return DADOS.categorias_cirurgia;
-  if(estado.tipo === "Transplantes") return DADOS.categorias_transplante;
-  return DADOS.categorias_cirurgia.concat(DADOS.categorias_transplante);
-}
-
+// A lista de pills de Categoria é sempre completa (cirurgia + transplante) —
+// selecionar um Tipo só marca as categorias correspondentes, não esconde as outras.
 function renderPillsCategoria(){
-  categoriasVisiveis = categoriasDoTipo();
   const cont = document.getElementById("pills-categoria");
   cont.innerHTML = "";
-  ["Todos"].concat(categoriasVisiveis).forEach(op => {
+  ["Todos"].concat(todasCategorias()).forEach(op => {
     const b = document.createElement("button");
     b.type = "button";
     const ativo = estado.categoria.includes("Todos") ? op === "Todos" : estado.categoria.includes(op);
     b.className = "pill" + (ativo ? " ativo" : "");
     b.textContent = op;
     b.onclick = () => {
-      pillsMultiToggle("categoria", op, categoriasVisiveis);
+      toggleMultiRaw("categoria", op);
+      normalizarMultiFiltro("categoria", "anteriorCategoria");
       renderTudo();
     };
     cont.appendChild(b);
@@ -246,7 +257,7 @@ function ufsDisponiveis(){
 }
 
 function ufsDaRegiao(regiao){
-  if(regiao === "Todos") return ufsDisponiveis();
+  if(regiao === "Todos") return [];
   const s = new Set();
   Object.values(DADOS.estabelecimentos).forEach(e => { if(e.regiao === regiao) s.add(e.uf); });
   return Array.from(s).sort();
@@ -262,25 +273,28 @@ function renderPillsRegiao(){
     b.textContent = op;
     b.onclick = () => {
       estado.regiao = op;
-      estado.uf = ["Todos"];
+      estado.uf = op === "Todos" ? ["Todos"] : ufsDaRegiao(op);
+      estado.anteriorUf = estado.uf.slice();
       renderTudo();
     };
     cont.appendChild(b);
   });
 }
 
+// A lista de pills de Estado é sempre completa — selecionar uma Região só
+// marca os estados correspondentes, não esconde os demais.
 function renderPillsUf(){
-  ufsVisiveis = ufsDaRegiao(estado.regiao);
   const cont = document.getElementById("pills-uf");
   cont.innerHTML = "";
-  ["Todos"].concat(ufsVisiveis).forEach(op => {
+  ["Todos"].concat(ufsDisponiveis()).forEach(op => {
     const b = document.createElement("button");
     b.type = "button";
     const ativo = estado.uf.includes("Todos") ? op === "Todos" : estado.uf.includes(op);
     b.className = "pill" + (ativo ? " ativo" : "");
     b.textContent = op;
     b.onclick = () => {
-      pillsMultiToggle("uf", op, ufsVisiveis);
+      toggleMultiRaw("uf", op);
+      normalizarMultiFiltro("uf", "anteriorUf");
       renderTudo();
     };
     cont.appendChild(b);
@@ -292,6 +306,8 @@ function limparFiltros(){
   estado.regiao = "Todos";
   estado.categoria = ["Todos"];
   estado.uf = ["Todos"];
+  estado.anteriorCategoria = ["Todos"];
+  estado.anteriorUf = ["Todos"];
   document.getElementById("busca").value = "";
   document.getElementById("ordenar-por").value = "Total";
   document.getElementById("ordenar-ordem").value = "desc";
@@ -354,7 +370,7 @@ function agregarPorEstabelecimento(fatos, categoriasCols){
 }
 
 function renderTabela(fatos){
-  const categoriasCols = categoriasDoTipo();
+  const categoriasCols = todasCategorias();
   let linhas = agregarPorEstabelecimento(fatos, categoriasCols);
 
   const termo = document.getElementById("busca").value.trim().toLowerCase();
