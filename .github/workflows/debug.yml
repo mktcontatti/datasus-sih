@@ -20,7 +20,7 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
-      - name: Diagnosticar codigo especifico no SP bruto
+      - name: Diagnosticar quantidade x aih x linhas
         env:
           DBG_UF: ${{ inputs.uf }}
           DBG_ANO: ${{ inputs.ano }}
@@ -37,10 +37,17 @@ jobs:
           codigo = os.environ['DBG_CODIGO']
           r = _baixar_via_ftp_direto(uf, ano, mes, grupo='SP')
           df = r.bruto
-          print('total_bruto', r.total_bruto)
-          print('colunas', list(df.columns))
           df['cod_norm'] = df['PROC_REA'].apply(lambda v: codigos.normalizar_codigo(v, 10))
-          sub = df[df['cod_norm'] == codigo]
-          print('linhas brutas com esse codigo:', len(sub))
-          print('AIH distintas com esse codigo:', sub['N_AIH'].astype(str).nunique())
+          sub = df[df['cod_norm'] == codigo].copy()
+          print('linhas brutas:', len(sub))
+          print('AIH distintas:', sub['N_AIH'].astype(str).nunique())
+          if 'SP_QT_PROC' in sub.columns:
+              qt = sub['SP_QT_PROC'].apply(lambda v: int(str(v).strip() or 0) if str(v).strip().lstrip('-').isdigit() else 0)
+              print('valores unicos de SP_QT_PROC (amostra):', qt.value_counts().head(10).to_dict())
+              print('SOMA de SP_QT_PROC:', qt.sum())
+          # agrupado por AIH: soma de QT_PROC por AIH, depois conta quantas linhas de AIH distintas isso da
+          sub['qt_norm'] = sub['SP_QT_PROC'].apply(lambda v: int(str(v).strip() or 0) if str(v).strip().lstrip('-').isdigit() else 0)
+          por_aih = sub.groupby(sub['N_AIH'].astype(str))['qt_norm'].sum()
+          print('total somando qt_norm por AIH depois somando tudo:', por_aih.sum())
+          print('quantas AIH tem soma > 1:', (por_aih > 1).sum())
           "
