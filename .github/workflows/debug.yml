@@ -8,11 +8,8 @@ on:
         required: true
       mes:
         required: true
-      grupo:
+      codigo:
         required: true
-        default: "SP"
-      aih:
-        required: false
 jobs:
   debug:
     runs-on: ubuntu-latest
@@ -23,61 +20,27 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
-      - name: Diagnosticar grupo SIH
+      - name: Diagnosticar codigo especifico no SP bruto
         env:
           DBG_UF: ${{ inputs.uf }}
           DBG_ANO: ${{ inputs.ano }}
           DBG_MES: ${{ inputs.mes }}
-          DBG_GRUPO: ${{ inputs.grupo }}
-          DBG_AIH: ${{ inputs.aih }}
+          DBG_CODIGO: ${{ inputs.codigo }}
         run: |
           python -c "
-          import os, ftplib, tempfile
-          from dbfread import DBF
-          from pyreaddbc import dbc2dbf
-          import pandas as pd
-
+          import os
+          from datasus.download import _baixar_via_ftp_direto
+          from datasus import codigos
           uf = os.environ['DBG_UF']
           ano = int(os.environ['DBG_ANO'])
           mes = int(os.environ['DBG_MES'])
-          grupo = os.environ['DBG_GRUPO']
-          aih = os.environ.get('DBG_AIH', '')
-
-          host = 'ftp.datasus.gov.br'
-          diretorio = '/dissemin/publicos/SIHSUS/200801_/Dados'
-          nome_alvo = f'{grupo}{uf.upper()}{ano % 100:02d}{mes:02d}.dbc'.upper()
-
-          ftp = ftplib.FTP(host, timeout=60)
-          ftp.login()
-          ftp.set_pasv(True)
-          ftp.cwd(diretorio)
-          nomes = ftp.nlst()
-          nome_real = next((n for n in nomes if n.upper() == nome_alvo), None)
-          print('arquivo alvo:', nome_alvo, '-> encontrado:', nome_real)
-          if nome_real is None:
-              amostras = [n for n in nomes if n.upper().startswith(grupo.upper()+uf.upper())]
-              print('amostras com esse prefixo:', amostras[:20])
-              ftp.quit()
-              raise SystemExit(0)
-
-          caminho_dbc = tempfile.mktemp(suffix='.dbc')
-          with open(caminho_dbc, 'wb') as f:
-              ftp.retrbinary(f'RETR {nome_real}', f.write)
-          ftp.quit()
-
-          caminho_dbf = tempfile.mktemp(suffix='.dbf')
-          dbc2dbf(caminho_dbc, caminho_dbf)
-          registros = list(DBF(caminho_dbf, encoding='cp1252', raw=False))
-          df = pd.DataFrame(registros)
-          print('total linhas:', len(df))
-          print('colunas:', list(df.columns))
-          print(df.head(5).to_string())
-          if aih:
-              cols_aih = [c for c in df.columns if 'AIH' in c.upper()]
-              print('colunas candidatas a AIH:', cols_aih)
-              for c in cols_aih:
-                  achou = df[df[c].astype(str).str.strip() == aih]
-                  print(c, '-> linhas encontradas:', len(achou))
-                  if len(achou):
-                      print(achou.to_string())
+          codigo = os.environ['DBG_CODIGO']
+          r = _baixar_via_ftp_direto(uf, ano, mes, grupo='SP')
+          df = r.bruto
+          print('total_bruto', r.total_bruto)
+          print('colunas', list(df.columns))
+          df['cod_norm'] = df['PROC_REA'].apply(lambda v: codigos.normalizar_codigo(v, 10))
+          sub = df[df['cod_norm'] == codigo]
+          print('linhas brutas com esse codigo:', len(sub))
+          print('AIH distintas com esse codigo:', sub['N_AIH'].astype(str).nunique())
           "
