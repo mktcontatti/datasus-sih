@@ -76,6 +76,11 @@
   .barra-trilho{flex:1;background:#ECECEF;border-radius:4px;height:20px;position:relative;}
   .barra-fill{background:var(--acento);height:100%;border-radius:4px;min-width:2px;}
   .barra-valor{font-size:.75rem;color:var(--sec);width:56px;font-variant-numeric:tabular-nums;}
+  .grafico-colunas{display:flex;align-items:flex-end;gap:.5rem;height:190px;padding:1.6rem 0 1.6rem;}
+  .coluna-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;position:relative;min-width:0;}
+  .coluna-valor{font-size:.68rem;color:var(--sec);margin-bottom:.3rem;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .coluna-barra{width:60%;max-width:36px;background:var(--acento);border-radius:4px 4px 0 0;min-height:2px;}
+  .coluna-rotulo{position:absolute;bottom:-1.5rem;font-size:.72rem;color:var(--sec);}
   #carregando{padding:3rem 0;text-align:center;color:var(--sec);}
   ::-webkit-scrollbar{height:10px;width:10px;}
   ::-webkit-scrollbar-thumb{background:#D2D2D7;border-radius:5px;}
@@ -458,16 +463,19 @@ function renderGraficoMes(fatos){
   const porMes = new Array(12).fill(0);
   fatos.forEach(f => { porMes[f.mes - 1] += f.qtd; });
   const max = Math.max(...porMes, 1);
+  const ALTURA_MAX = 130;
   const box = document.getElementById("grafico-mes");
   box.innerHTML = "";
+  box.classList.add("grafico-colunas");
   porMes.forEach((v, i) => {
-    const linha = document.createElement("div");
-    linha.className = "barra-linha";
-    linha.innerHTML = `
-      <div class="barra-rotulo">${MESES_CURTO[i]}</div>
-      <div class="barra-trilho"><div class="barra-fill" style="width:${(v/max*100).toFixed(1)}%"></div></div>
-      <div class="barra-valor">${fmtInt(v)}</div>`;
-    box.appendChild(linha);
+    const col = document.createElement("div");
+    col.className = "coluna-item";
+    const alturaPx = Math.max(Math.round((v / max) * ALTURA_MAX), 2);
+    col.innerHTML = `
+      <div class="coluna-valor">${fmtInt(v)}</div>
+      <div class="coluna-barra" style="height:${alturaPx}px"></div>
+      <div class="coluna-rotulo">${MESES_CURTO[i]}</div>`;
+    box.appendChild(col);
   });
 }
 
